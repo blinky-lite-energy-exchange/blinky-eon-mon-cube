@@ -1,98 +1,72 @@
-#include "ModbusRtu.h"
-#define BAUD_RATE      9600
-#define MODBUSBUFSIZE  4
-#define irLedPin      13
-#define irPin          9
-#define batMonPin     A0
-#define commLEDPin     3
+#include "BlinkyBus.h"
+#define BAUD_RATE  19200
+#define commLEDPin    3
+#define eonLedPin    13
+#define eonPin        9
+#define batMonPin    A0
 
-/**
- *  Modbus object declaration
- *  u8id : node id = 0 for master, = 1..247 for slave
- *  port : serial port
- *  u8txenpin : 0 for RS-232 and USB-FTDI 
- *               or any pin number > 1 for RS-485
- */
-Modbus slave(1,Serial1,0); // this is slave @1 and RS-232 or USB-FTDI
-
-union ModbusUnion
+#define BLINKYBUSBUFSIZE  4
+union BlinkyBusUnion
 {
   struct
   {
-    uint16_t initCube;
-    uint16_t batMon;
-    uint32_t irCount;
+    int16_t state;
+    int16_t batMon;
+    uint32_t eonCount;
   };
-  uint16_t modbusBuffer[MODBUSBUFSIZE];
-} mb;
-boolean commLED = true;
-uint16_t msgCnt = 0;
+  int16_t buffer[BLINKYBUSBUFSIZE];
+} bb;
+BlinkyBus blinkyBus(bb.buffer, BLINKYBUSBUFSIZE, Serial1, commLEDPin);
 
-volatile boolean irLED = false;
-volatile uint32_t irCount = 0;
+volatile boolean eonLED = true;
+volatile uint32_t eonCount = 0;
+int batCount = 0;
 
 void setup() 
 {
-  pinMode(irLedPin, OUTPUT);
-  pinMode(commLEDPin, OUTPUT);
-  pinMode(irPin,  INPUT);
+  pinMode(eonLedPin,  OUTPUT);
+  pinMode(eonPin,  INPUT);
   pinMode(batMonPin,  INPUT);
-  attachInterrupt(irPin, irPulseHandler, RISING);
+  attachInterrupt(eonPin, eonPulseHandler, RISING);
+  digitalWrite(eonLedPin, eonLED);
 
-  mb.initCube               = 1;
-  mb.batMon                 = 0;
-  mb.irCount                = 0;
+  bb.state = 0; //don't ask for init
+  bb.batMon = 0;
+  bb.eonCount = 0;
 
-//  Serial.begin(9600);
   Serial1.begin(BAUD_RATE);
-  slave.start();
-  
-  digitalWrite(irLedPin, irLED);
-  digitalWrite(commLEDPin, commLED);
-  delay(5000);
-  commLED = !commLED;
-  digitalWrite(commLEDPin, commLED);
+//  Serial.begin(9600);
+  blinkyBus.start();
+
 }
 
 void loop() 
 {
-  mb.batMon = (uint16_t) analogRead(batMonPin);
-  mb.irCount = irCount;
-  slave.poll( mb.modbusBuffer, MODBUSBUFSIZE );
-  checkComm();
   delay(50);
-//  blinkCommLED();
-}
-
-void irPulseHandler()
-{
-  irLED = !irLED;
-  digitalWrite(irLedPin, irLED);
-  if (irCount < 0xFFFFFFFF)
+  bb.eonCount = eonCount; 
+  blinkyBus.poll();
+  ++batCount;
+  if (batCount >= 40)
   {
-    irCount = irCount + 1;
+    batCount = 0;
+    bb.batMon = (int16_t) analogRead(batMonPin);
+/*
+    Serial.print(bb.batMon);
+    Serial.print(", ");
+    Serial.println(bb.eonCount);
+*/    
+  }
+}
+void eonPulseHandler()
+{
+  eonLED = !eonLED;
+  digitalWrite(eonLedPin, eonLED);
+  if (eonCount < 0xFFFFFFFF)
+  {
+    eonCount = eonCount + 1;
   }
   else
   {
-    irCount = 0;
+    eonCount = 0;
   }
-}
-void checkComm()
-{
-  uint16_t numMessages;
-  numMessages = slave.getInCnt();
-  if (numMessages != msgCnt)
-  {
-    msgCnt = numMessages;
-    blinkCommLED();
-  }
-  
-}
-void blinkCommLED()
-{
-  commLED = true;
-  digitalWrite(commLEDPin, commLED);
-  delay(50);    
-  commLED = false;
-  digitalWrite(commLEDPin, commLED);
 }
