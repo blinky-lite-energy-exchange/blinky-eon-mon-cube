@@ -18,49 +18,58 @@ union BlinkyBusUnion
 } bb;
 BlinkyBus blinkyBus(bb.buffer, BLINKYBUSBUFSIZE, Serial1, commLEDPin);
 
-volatile boolean eonLED = true;
+volatile boolean eonLED = false;
 volatile uint32_t eonCount = 0;
 int batCount = 0;
+boolean permitEonCountWrite = true;
 
 void setup() 
 {
+  for (int ii = 2; ii <24; ++ii)
+  {
+    pinMode(ii,  OUTPUT);
+    digitalWrite(ii, LOW);
+  }
   pinMode(eonLedPin,  OUTPUT);
   pinMode(eonPin,  INPUT);
   pinMode(batMonPin,  INPUT);
   attachInterrupt(eonPin, eonPulseHandler, RISING);
   digitalWrite(eonLedPin, eonLED);
 
-  bb.state = 0; //don't ask for init
+  bb.state = 1; //init
   bb.batMon = 0;
   bb.eonCount = 0;
 
   Serial1.begin(BAUD_RATE);
-//  Serial.begin(9600);
   blinkyBus.start();
-
 }
 
 void loop() 
 {
+  int ipoll = 0;
   delay(50);
-  bb.eonCount = eonCount; 
-  blinkyBus.poll();
+  if (permitEonCountWrite) bb.eonCount = eonCount; 
+  ipoll = blinkyBus.poll();
+  if (ipoll == 2)
+  {
+    if (blinkyBus.getLastWriteAddress() == 2) permitEonCountWrite = false;
+    if (blinkyBus.getLastWriteAddress() == 3)
+    {
+      eonCount = bb.eonCount;
+      permitEonCountWrite = true;
+    }
+  }
   ++batCount;
-  if (batCount >= 40)
+  if (batCount >= 80)
   {
     batCount = 0;
     bb.batMon = (int16_t) analogRead(batMonPin);
-/*
-    Serial.print(bb.batMon);
-    Serial.print(", ");
-    Serial.println(bb.eonCount);
-*/    
   }
 }
 void eonPulseHandler()
 {
-  eonLED = !eonLED;
-  digitalWrite(eonLedPin, eonLED);
+//  eonLED = !eonLED;
+//  digitalWrite(eonLedPin, eonLED);
   if (eonCount < 0xFFFFFFFF)
   {
     eonCount = eonCount + 1;
