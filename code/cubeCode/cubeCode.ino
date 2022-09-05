@@ -1,81 +1,83 @@
 #include "BlinkyBus.h"
 #define BAUD_RATE  19200
-#define commLEDPin    3
-#define eonLedPin    13
-#define eonPin        9
-#define batMonPin    A0
-
-#define BLINKYBUSBUFSIZE  4
+#define commLEDPin   13
+#define BLINKYBUSBUFSIZE  11
 union BlinkyBusUnion
 {
   struct
   {
     int16_t state;
-    int16_t batMon;
-    uint32_t eonCount;
+    int16_t year;
+    int16_t  month;
+    int16_t  day;
+    int16_t  hour;
+    int16_t  min;
+    int16_t  sec;
+    int16_t  GWh;
+    int16_t  MWh;
+    int16_t  kWh;
+    int16_t  Wh;
   };
   int16_t buffer[BLINKYBUSBUFSIZE];
 } bb;
-BlinkyBus blinkyBus(bb.buffer, BLINKYBUSBUFSIZE, Serial1, commLEDPin);
-
-volatile boolean eonLED = false;
-volatile uint32_t eonCount = 0;
-int batCount = 0;
-boolean permitEonCountWrite = true;
+BlinkyBus blinkyBus(bb.buffer, BLINKYBUSBUFSIZE, Serial2, commLEDPin);
 
 void setup() 
 {
-  for (int ii = 2; ii <24; ++ii)
-  {
-    pinMode(ii,  OUTPUT);
-    digitalWrite(ii, LOW);
-  }
-  pinMode(eonLedPin,  OUTPUT);
-  pinMode(eonPin,  INPUT);
-  pinMode(batMonPin,  INPUT);
-  attachInterrupt(eonPin, eonPulseHandler, RISING);
-  digitalWrite(eonLedPin, eonLED);
 
   bb.state = 1; //init
-  bb.batMon = 0;
-  bb.eonCount = 0;
+  bb.year = 0;
+  bb.month = 0;
+  bb.day = 0;
+  bb.hour = 0;
+  bb.min = 0;
+  bb.sec = 0;
+  bb.GWh = 0;
+  bb.MWh = 0;
+  bb.kWh = 0;
+  bb.Wh  = 0;
 
-  Serial1.begin(BAUD_RATE);
+  Serial1.begin(115200,SERIAL_8N1_RXINV);
+  Serial2.begin(BAUD_RATE);
   blinkyBus.start();
 }
 
 void loop() 
 {
-  int ipoll = 0;
-  delay(50);
-  if (permitEonCountWrite) bb.eonCount = eonCount; 
-  ipoll = blinkyBus.poll();
-  if (ipoll == 2)
-  {
-    if (blinkyBus.getLastWriteAddress() == 2) permitEonCountWrite = false;
-    if (blinkyBus.getLastWriteAddress() == 3)
-    {
-      eonCount = bb.eonCount;
-      permitEonCountWrite = true;
-    }
-  }
-  ++batCount;
-  if (batCount >= 80)
-  {
-    batCount = 0;
-    bb.batMon = (int16_t) analogRead(batMonPin);
-  }
+  blinkyBus.poll();
+  readTelegram();
 }
-void eonPulseHandler()
+void readTelegram()
 {
-//  eonLED = !eonLED;
-//  digitalWrite(eonLedPin, eonLED);
-  if (eonCount < 0xFFFFFFFF)
+  char telegram[64];
+  String dumpy;
+  String dataString;
+
+  if (Serial1.available() )
   {
-    eonCount = eonCount + 1;
-  }
-  else
-  {
-    eonCount = 0;
+    while (Serial1.available()) 
+    {
+      memset(telegram, 0, sizeof(telegram));
+      Serial1.readBytesUntil('\n',telegram, 64);
+      dumpy = telegram;
+      if (dumpy.indexOf("0-0:1.0.0") >= 0)
+      {
+        dataString = dumpy.substring( dumpy.indexOf("(") + 1, dumpy.indexOf(")") );
+        bb.year  = (int16_t ) dataString.substring( 0, 2).toInt();
+        bb.month = (int16_t ) dataString.substring( 2, 4).toInt();
+        bb.day   = (int16_t ) dataString.substring( 4, 6).toInt();
+        bb.hour  = (int16_t ) dataString.substring( 6, 8).toInt();
+        bb.min   = (int16_t ) dataString.substring( 8,10).toInt();
+        bb.sec   = (int16_t ) dataString.substring(10,12).toInt();
+      }
+      if (dumpy.indexOf("1-0:1.8.0") >= 0)
+      {
+        dataString = dumpy.substring( dumpy.indexOf("(") + 1, dumpy.indexOf(")") );
+        bb.GWh  = (int16_t ) dataString.substring( 0, 2).toInt();
+        bb.MWh  = (int16_t ) dataString.substring( 2, 5).toInt();
+        bb.kWh  = (int16_t ) dataString.substring( 5, 8).toInt();
+        bb.Wh   = (int16_t ) dataString.substring( 9,12).toInt();
+      }
+    }
   }
 }
